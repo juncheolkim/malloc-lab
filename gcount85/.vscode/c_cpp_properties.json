@@ -4,7 +4,6 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "C:\\Program Files (x86)\\indows Kits\\10\\Include\\10.0.22621.0\\ucrt"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
