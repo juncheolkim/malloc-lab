@@ -81,8 +81,12 @@ team_t team = {
 // 프로토타입 선언
 static void *coalesce(void *bp);
 static void *extend_heap(size_t words);
-static void place(void *bp, size_t asize); 
+static void place(void *bp, size_t asize);
 static void *find_fit(size_t asize);
+static void printblock(void *bp);
+
+
+static char *heap_listp; // 항상 힙의 프롤로그 블록을 가리킬 포인터 변수
 
 //
 
@@ -92,7 +96,6 @@ static void *find_fit(size_t asize);
 
 int mm_init(void)
 {
-    static char *heap_listp; // 항상 힙의 프롤로그 블록을 가리킬 포인터 변수
 
     // 책보고 추가한 부분
     /* Create the initial empty heap */
@@ -146,23 +149,24 @@ static void *extend_heap(size_t words)
  *
  */
 
-void *mm_malloc(size_t size)
-{
-    int newsize = ALIGN(size + SIZE_T_SIZE);
-    void *p = mem_sbrk(newsize);
-    if (p == (void *)-1)
-        return NULL;
-    else
-    {
-        *(size_t *)p = size;
-        return (void *)((char *)p + SIZE_T_SIZE);
-    }
-}
+// 기존 코드에 있던 부분 
+// void *mm_malloc(size_t size)
+// {
+//     int newsize = ALIGN(size + SIZE_T_SIZE);
+//     void *p = mem_sbrk(newsize);
+//     if (p == (void *)-1)
+//         return NULL;
+//     else
+//     {
+//         *(size_t *)p = size;
+//         return (void *)((char *)p + SIZE_T_SIZE);
+//     }
+// }
 
 // mm_malloc: 책에서 복붙한 부분
 void *mm_malloc(size_t size)
 {
-    size_t asize;      /* Adjusted block size */
+    size_t asize;      /* Adjusted block size for 더블워드 정렬, 헤더/풋터*/
     size_t extendsize; /* Amount to extend heap if no fit */
     char *bp;
 
@@ -170,41 +174,70 @@ void *mm_malloc(size_t size)
     if (size == 0)
         return NULL;
 
-    /* Adjust block size to include overhead and alignment reqs. */
-    if (size <= DSIZE)
-        asize = 2 * DSIZE;
-    else
-        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
-
-    /* Search the free list for a fit */
-    if ((bp = find_fit(asize)) != NULL) // find_fit 구현해야 함
+    /* 블록 사이즈를 정렬 요건과 헤더/풋터를 위한 공간을 확보하기 위해 조절 */
+    if (size <= DSIZE) // 만약 요청 크기가 8바이트랑 같거나 작으면
     {
-        place(bp, asize); // place 구현해야 함
-        return bp;
+        asize = 2 * DSIZE; // 최소 16바이트 블록으로 줌 (워드 4개)
+    }
+    else // 요청 크기가 8바이트보다 크면(더블 워드 이상)
+    {
+        //  오버헤드 바이트를 추가하고, 가까운 8의 배수로 반올림 
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
     }
 
-    /* No fit found. Get more memory and place the block */
+    /* Search the free list for a fit */
+    if ((bp = find_fit(asize)) != NULL) // fit하는 블록이 있을 때
+    {
+        place(bp, asize); // bp가 가리키는 블록에 해당 사이즈 할당
+        return bp;        // 포인터 반환
+    }
+
+    /* 맞는 가용 블럭이 없으면, 메모리를 더 받아서 힙을 새로운 가용 블럭으로 확장하고,
+    요청한 블록을 새 가용블럭에 배치 */
     extendsize = MAX(asize, CHUNKSIZE);
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
         return NULL;
-    place(bp, asize);
+    place(bp, asize); // 필요한 경우 블록 분할 
     return bp;
 }
 
-// find_fit 구현해야 함
 // 묵시적 가용 리스트에서 first fit 검색을 수행하는 함수
 static void *find_fit(size_t asize)
 {
+    /* First-fit search */
+    void *bp;
+
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
+    {
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
+        {
+            return bp;
+        }
+    }
+    return NULL; /* 맞는 fit이 없는 경우 */
+    // #endif // <- 얘는 책에 있었는데 #ifdef랑 같이 필요함. 왜 얘만 혼자 있는 건지 모르겠음.
 }
 
-// place 구현해야 함
-// 요청한 블록(bp)을 가용 블록의 시작 부분에 배치하고
-// 나머지 부분의 크기가 최소 블록 크기와 같거나 큰 경우에만 분할함 
-static void place(void *bp, size_t asize) 
+// 조절한 사이즈(asize)의 요청한 블록(bp)을 가용 블록의 시작 부분에 배치하고
+// 나머지 부분의 크기가 최소 블록 크기와 같거나 큰 경우에만 분할함
+static void place(void *bp, size_t asize)
 {
+    size_t csize = GET_SIZE(HDRP(bp));
 
+    if ((csize - asize) >= (2 * DSIZE))
+    {
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+        bp = NEXT_BLKP(bp);
+        PUT(HDRP(bp), PACK(csize - asize, 0));
+        PUT(FTRP(bp), PACK(csize - asize, 0));
+    }
+    else
+    {
+        PUT(HDRP(bp), PACK(csize, 1));
+        PUT(FTRP(bp), PACK(csize, 1));
+    }
 }
-//  mm_malloc: 요기까지 복붙 코드
 
 /*
  * mm_free - Freeing a block does nothing.
@@ -218,7 +251,7 @@ void mm_free(void *bp)
     coalesce(bp);
 }
 
-/* 연결해주는 함수 */
+/* 경계 태그 연결하는 함수. 합쳐진 블락의 bp를 반환함.  */
 static void *coalesce(void *bp)
 {
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
@@ -273,3 +306,69 @@ void *mm_realloc(void *ptr, size_t size)
     mm_free(oldptr);
     return newptr;
 }
+
+
+// 여기는 분석이 필요함 
+
+/*
+ * checkblock - Check the block for consistency
+ */
+static void checkblock(void *bp)
+{
+    if ((size_t)bp % 8)
+        printf("Error: %p is not doubleword aligned\n", bp);
+    if (GET(HDRP(bp)) != GET(FTRP(bp)))
+        printf("Error: header does not match footer\n");
+}
+
+/*
+ * mm_checkheap - Check the heap for consistency
+ */
+static void mm_checkheap(int verbose)
+{
+    char *bp = heap_listp;
+
+    if (verbose)
+        printf("Heap (%p):\n", heap_listp);
+
+    if ((GET_SIZE(HDRP(heap_listp)) != DSIZE) || !GET_ALLOC(HDRP(heap_listp)))
+        printf("Bad prologue header\n");
+    checkblock(heap_listp);
+
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
+    {
+        if (verbose)
+            printblock(bp);
+        checkblock(bp);
+    }
+
+    if (verbose)
+        printblock(bp);
+    if ((GET_SIZE(HDRP(bp)) != 0) || !(GET_ALLOC(HDRP(bp))))
+        printf("Bad epilogue header\n");
+}
+
+/*
+ * printblock - Print the block for debugging
+ */
+static void printblock(void *bp)
+{
+    size_t hsize, halloc, fsize, falloc;
+
+    checkheap(0);
+    hsize = GET_SIZE(HDRP(bp));
+    halloc = GET_ALLOC(HDRP(bp));
+    fsize = GET_SIZE(FTRP(bp));
+    falloc = GET_ALLOC(FTRP(bp));
+
+    if (hsize == 0)
+    {
+        printf("%p: EOL\n", bp);
+        return;
+    }
+
+    printf("%p: header: [%d:%c] footer: [%d:%c]\n", bp,
+           hsize, (halloc ? 'a' : 'f'),
+           fsize, (falloc ? 'a' : 'f'));
+}
+
