@@ -58,30 +58,38 @@ team_t team = {
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 
-/* Pack a size and allocated bit into a word */
+/* 블록 사이즈와, 할당/가용 비트를 워드 안에 packing */
 #define PACK(size, alloc) ((size) | (alloc))
 
-/* Read and write a word at address p */
-#define GET(p) (*(unsigned int *)(p))
-#define PUT(p, val) (*(unsigned int *)(p) = (val))
+/* 주소 p에 담긴 워드를 읽고 쓰기 */
+#define GET(p) (*(unsigned int *)(p))              // 워드 읽기
+#define PUT(p, val) (*(unsigned int *)(p) = (val)) // 워드 쓰기
 
-/* Read the size and allocated fields from address p */
+/* 주소 p에 담긴 블록 사이즈와 할당/가용 비트를 읽기 */
+// 여기 도통 이해가 안되는 부분임 ************************
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
-/* Given block ptr bp, compute address of its header and footer */
+/* 블록을 가리키는 포인터 bp가 주어졌을 때, 그것의 헤더와 풋터의 주소를 계산 */
 #define HDRP(bp) ((char *)(bp)-WSIZE)
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
-/* Given block ptr bp, compute address of next and previous blocks */
+/* 블록을 가리키는 포인터 bp가 주어졌을 때, 다음 블럭과 이전 블럭의 주소를 계산 */
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp)-WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE(((char *)(bp)-DSIZE)))
+
+// 프로토타입 선언
+static void *coalesce(void *bp);
+static void *extend_heap(size_t words);
+static void place(void *bp, size_t asize); 
+static void *find_fit(size_t asize);
+
+//
 
 /*
  * mm_init - initialize the malloc package.
  */
 
-static void *extend_heap(size_t words);
 int mm_init(void)
 {
     static char *heap_listp; // 항상 힙의 프롤로그 블록을 가리킬 포인터 변수
@@ -113,26 +121,31 @@ static void *extend_heap(size_t words)
 {
     char *bp;
     size_t size;
-    
+
     /* Allocate an even number of words to maintain alignment */
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE; // 워드를 2로 나눠서 홀수면 워드 한개 더 추가
-    if ((long)(bp = mem_sbrk(size)) == -1)
+    if ((long)(bp = mem_sbrk(size)) == -1)                    // sbrk 함수로부터 힙 못 받으면 NULL 반환
         return NULL;
-    
-    /* Initialize free block header/footer and the epilogue header */
-    // 새로 받은 가용 블럭의 헤더/푸터와 에필로그 헤더를 초기화 
-    PUT(HDRP(bp), PACK(size, 0));         /* Free block header */
-    PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
 
-    /* Coalesce if the previous block was free */
-    return coalesce(bp); // 통합된 블럭의 블럭 포인트 반환 
+    /* Initialize free block header/footer and the epilogue header */
+    // 새로 받은 가용 블럭의 헤더/푸터 + 에필로그 헤더를 초기화
+    // bp는 이전의 힙 메모리의 에필로그 블록 다음을 가리키게 됨
+    PUT(HDRP(bp), PACK(size, 0)); /* Free block header, 할당비트 0 */
+    PUT(FTRP(bp), PACK(size, 0)); /* Free block footer, 할당비트 0 */
+    // 에필로그 헤더의 공간은 항상 보장되는지??? 푸터를 끝에 적으면 에필로그 블록 자리 없을 거 같은데???????
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header, 크기 0, 할당비트 1 */
+
+    /* 이전의 힙이 가용 블록으로 끝난 경우, 연결시켜주기 위해 연결 함수 호출 */
+    return coalesce(bp); // 통합된 블럭의 블럭 포인트 반환
 }
 
 /*
  * mm_malloc - Allocate a block by incrementing the brk pointer.
  *     Always allocate a block whose size is a multiple of the alignment.
+ * size 바이트의 메모리 블록을 요청
+ *
  */
+
 void *mm_malloc(size_t size)
 {
     int newsize = ALIGN(size + SIZE_T_SIZE);
@@ -146,11 +159,99 @@ void *mm_malloc(size_t size)
     }
 }
 
+// mm_malloc: 책에서 복붙한 부분
+void *mm_malloc(size_t size)
+{
+    size_t asize;      /* Adjusted block size */
+    size_t extendsize; /* Amount to extend heap if no fit */
+    char *bp;
+
+    /* Ignore spurious requests */
+    if (size == 0)
+        return NULL;
+
+    /* Adjust block size to include overhead and alignment reqs. */
+    if (size <= DSIZE)
+        asize = 2 * DSIZE;
+    else
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
+
+    /* Search the free list for a fit */
+    if ((bp = find_fit(asize)) != NULL) // find_fit 구현해야 함
+    {
+        place(bp, asize); // place 구현해야 함
+        return bp;
+    }
+
+    /* No fit found. Get more memory and place the block */
+    extendsize = MAX(asize, CHUNKSIZE);
+    if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
+        return NULL;
+    place(bp, asize);
+    return bp;
+}
+
+// find_fit 구현해야 함
+// 묵시적 가용 리스트에서 first fit 검색을 수행하는 함수
+static void *find_fit(size_t asize)
+{
+}
+
+// place 구현해야 함
+// 요청한 블록(bp)을 가용 블록의 시작 부분에 배치하고
+// 나머지 부분의 크기가 최소 블록 크기와 같거나 큰 경우에만 분할함 
+static void place(void *bp, size_t asize) 
+{
+
+}
+//  mm_malloc: 요기까지 복붙 코드
+
 /*
  * mm_free - Freeing a block does nothing.
+ * 블럭을 프리시키고 인접한 가용 블록과 경계 태그 연결을 이용함
  */
-void mm_free(void *ptr)
+void mm_free(void *bp)
 {
+    size_t size = GET_SIZE(HDRP(bp));
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+    coalesce(bp);
+}
+
+/* 연결해주는 함수 */
+static void *coalesce(void *bp)
+{
+    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));
+    if (prev_alloc && next_alloc)
+    { /* Case 1 */
+        return bp;
+    }
+
+    else if (prev_alloc && !next_alloc)
+    { /* Case 2 */
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
+    }
+
+    else if (!prev_alloc && next_alloc)
+    { /* Case 3 */
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+    else
+    { /* Case 4 */
+        size += GET_SIZE(HDRP(PREV_BLKP(bp))) +
+                GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+    return bp;
 }
 
 /*
