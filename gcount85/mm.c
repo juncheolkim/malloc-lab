@@ -217,14 +217,14 @@ static void *find_fit(size_t asize)
 }
 
 // 가용 블록의 시작 부분에 조절한 사이즈(asize)의 요청한 블록(bp)을 배치하고
-// 헤더, 풋터 지정 
+// 헤더, 풋터 지정
 // 나머지 부분의 크기가 최소 블록 크기와 같거나 큰 경우에만 분할함
 static void place(void *bp, size_t asize)
 {
-    size_t fsize = GET_SIZE(HDRP(bp)); // 가용 블럭의 전체 사이즈 
+    size_t fsize = GET_SIZE(HDRP(bp)); // 가용 블럭의 전체 사이즈
 
     // 가용 블럭의 사이즈와 배치하고자 사이즈의 차이가 워드 4개보다 같거나 크면 -> 분할 O
-    if ((fsize - asize) >= (2 * DSIZE)) 
+    if ((fsize - asize) >= (2 * DSIZE))
     {
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
@@ -234,7 +234,7 @@ static void place(void *bp, size_t asize)
     }
 
     // 가용 블럭의 사이즈와 배치하고자 사이즈의 차이가 워드 4개보다 작으면 -> 분할 X
-    else  
+    else
     {
         PUT(HDRP(bp), PACK(fsize, 1));
         PUT(FTRP(bp), PACK(fsize, 1));
@@ -292,13 +292,12 @@ static void *coalesce(void *bp)
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  * 에러메시지: mm_realloc did not preserve the data from old block
- *
  */
-void *mm_realloc(void *ptr, size_t size)
+void *mm_realloc(void *ptr, size_t size) // realloc할 포인터, 새롭게 필요한 총 사이즈
 {
     void *oldptr = ptr; // 기존 포인터
     void *newptr;       // 새로운 포인터 선언
-    size_t copySize;    // 복사할 사이즈 선언 
+    size_t copySize;    // 복사해야 할 기존 사이즈 선언
 
     newptr = mm_malloc(size);
     if (newptr == NULL)
@@ -316,146 +315,169 @@ void *mm_realloc(void *ptr, size_t size)
     return newptr;
 }
 
+// 새롭게 구한 realloc 함수: 65점
+/* mm_realloc - Reallocate a block of memory */
 void *mm_realloc(void *ptr, size_t size)
 {
-    // if ptr is NULL, then it is equivalent to malloc
-    if (ptr == NULL)
+    // // Check if the pointer is valid and not already freed
+    // if (ptr != NULL && !is_freed(ptr))
+    // {
+    // Allocate a new block of memory
+    void *new_ptr = mm_malloc(size);
+    if (new_ptr != NULL)
     {
-        return mm_malloc(size);
-    }
-
-    // if size is 0, then free the memory previously allocated
-    if (size == 0)
-    {
+        // Copy the data from the old block to the new one
+        memcpy(new_ptr, ptr, size);
+        // Free the old block
         mm_free(ptr);
-        return NULL;
+        // Return a pointer to the newly allocated block
+        return new_ptr;
     }
-
-    // get the header of the block
-    void *header_ptr = HDRP(ptr);
-    void *next_header_ptr = NEXT_BLKP(header_ptr);
-
-    // get the size of the current block
-    size_t block_size = GET_SIZE(HDRP(header_ptr));
-
-    // if the block fits perfectly, no need to reallocate
-    if (block_size == size)
-    {
-        return ptr;
-    }
-    // if the block is smaller than the size requested
-    else if (block_size < size)
-    {
-        // check if the next block is allocated
-        if (!GET_ALLOC(next_header_ptr))
-        {
-            // get the size of the next block
-            size_t next_block_size = GET_SIZE(next_header_ptr);
-
-            // if the next block size is greater than the required size
-            if (next_block_size + block_size >= size)
-            {
-                // remove the next block from the free list
-                remove_free_block(next_header_ptr);
-                // allocate the current block
-                PUT(HDRP(header_ptr), PACK(block_size + next_block_size, 1));
-                // set the footer of the current block
-                PUT(FTRP(header_ptr), PACK(block_size + next_block_size, 1));
-                // set the header of the next block
-                PUT(HDRP(NEXT_BLKP(header_ptr)), PACK(0, 1));
-                return ptr;
-            }
-            // if the next block size is not enough
-            else
-            {
-                void *new_block = mm_malloc(size);
-                if (new_block == NULL)
-                {
-                    return NULL;
-                }
-                // copy the data from the original block to the new block
-                memcpy(new_block, ptr, block_size);
-                // free the original block
-                mm_free(ptr);
-                return new_block;
-            }
-        }
-        // if the next block is allocated
-        else
-        {
-            void *new_block = mm_malloc(size);
-            if (new_block == NULL)
-            {
-                return NULL;
-            }
-            // copy the data from the original block to the new block
-            memcpy(new_block, ptr, block_size);
-            // free the original block
-            mm_free(ptr);
-            return new_block;
-        }
-    }
-    // if the block is larger than the size requested
-    else
-    {
-        // check if the next block is allocated
-        if (!GET_ALLOC(next_header_ptr))
-        {
-            // get the size of the next block
-            size_t next_block_size = GET_SIZE(next_header_ptr);
-
-            // if the next block size plus the current block size is greater than the required size
-            if (next_block_size + block_size >= size)
-            {
-                // remove the next block from the free list
-                remove_free_block(next_header_ptr);
-                // allocate the current block
-                PUT(HDRP(header_ptr), PACK(size, 1));
-                // set the footer of the current block
-                PUT(FTRP(header_ptr), PACK(size, 1));
-                // set the header of the next block
-                PUT(HDRP(NEXT_BLKP(header_ptr)), PACK(next_block_size + block_size - size, 0));
-                // set the footer of the next block
-                PUT(FTRP(NEXT_BLKP(header_ptr)), PACK(next_block_size + block_size - size, 0));
-                // add the next block to the free list
-                add_free_block(NEXT_BLKP(header_ptr));
-                return ptr;
-            }
-            // if the next block size is not enough
-            else
-            {
-                void *new_block = mm_malloc(size);
-                if (new_block == NULL)
-                {
-                    return NULL;
-                }
-                // copy the data from the original block to the new block
-                memcpy(new_block, ptr, block_size);
-                // free the original block
-                mm_free(ptr);
-                return new_block;
-            }
-        }
-        // if the next block is allocated
-        else
-        {
-            void *new_block = mm_malloc(size);
-            if (new_block == NULL)
-            {
-                return NULL;
-            }
-            // copy the data from the original block to the new block
-            memcpy(new_block, ptr, block_size);
-            // free the original block
-            mm_free(ptr);
-            return new_block;
-        }
-    }
-    return NULL;
+    // }
+    // return NULL;
 }
 
-// 여기는 분석이 필요함
+// 복잡한 realloc 함수
+// void *mm_realloc(void *ptr, size_t size)
+// {
+//     // if ptr is NULL, then it is equivalent to malloc
+//     if (ptr == NULL)
+//     {
+//         return mm_malloc(size);
+//     }
 
+//     // if size is 0, then free the memory previously allocated
+//     if (size == 0)
+//     {
+//         mm_free(ptr);
+//         return NULL;
+//     }
+
+//     // get the header of the block
+//     void *header_ptr = HDRP(ptr);
+//     void *next_header_ptr = NEXT_BLKP(header_ptr);
+
+//     // get the size of the current block
+//     size_t block_size = GET_SIZE(HDRP(header_ptr));
+
+//     // if the block fits perfectly, no need to reallocate
+//     if (block_size == size)
+//     {
+//         return ptr;
+//     }
+//     // if the block is smaller than the size requested
+//     else if (block_size < size)
+//     {
+//         // check if the next block is allocated
+//         if (!GET_ALLOC(next_header_ptr))
+//         {
+//             // get the size of the next block
+//             size_t next_block_size = GET_SIZE(next_header_ptr);
+
+//             // if the next block size is greater than the required size
+//             if (next_block_size + block_size >= size)
+//             {
+//                 // remove the next block from the free list
+//                 remove_free_block(next_header_ptr);
+//                 // allocate the current block
+//                 PUT(HDRP(header_ptr), PACK(block_size + next_block_size, 1));
+//                 // set the footer of the current block
+//                 PUT(FTRP(header_ptr), PACK(block_size + next_block_size, 1));
+//                 // set the header of the next block
+//                 PUT(HDRP(NEXT_BLKP(header_ptr)), PACK(0, 1));
+//                 return ptr;
+//             }
+//             // if the next block size is not enough
+//             else
+//             {
+//                 void *new_block = mm_malloc(size);
+//                 if (new_block == NULL)
+//                 {
+//                     return NULL;
+//                 }
+//                 // copy the data from the original block to the new block
+//                 memcpy(new_block, ptr, block_size);
+//                 // free the original block
+//                 mm_free(ptr);
+//                 return new_block;
+//             }
+//         }
+//         // if the next block is allocated
+//         else
+//         {
+//             void *new_block = mm_malloc(size);
+//             if (new_block == NULL)
+//             {
+//                 return NULL;
+//             }
+//             // copy the data from the original block to the new block
+//             memcpy(new_block, ptr, block_size);
+//             // free the original block
+//             mm_free(ptr);
+//             return new_block;
+//         }
+//     }
+//     // if the block is larger than the size requested
+//     else
+//     {
+//         // check if the next block is allocated
+//         if (!GET_ALLOC(next_header_ptr))
+//         {
+//             // get the size of the next block
+//             size_t next_block_size = GET_SIZE(next_header_ptr);
+
+//             // if the next block size plus the current block size is greater than the required size
+//             if (next_block_size + block_size >= size)
+//             {
+//                 // remove the next block from the free list
+//                 remove_free_block(next_header_ptr);
+//                 // allocate the current block
+//                 PUT(HDRP(header_ptr), PACK(size, 1));
+//                 // set the footer of the current block
+//                 PUT(FTRP(header_ptr), PACK(size, 1));
+//                 // set the header of the next block
+//                 PUT(HDRP(NEXT_BLKP(header_ptr)), PACK(next_block_size + block_size - size, 0));
+//                 // set the footer of the next block
+//                 PUT(FTRP(NEXT_BLKP(header_ptr)), PACK(next_block_size + block_size - size, 0));
+//                 // add the next block to the free list
+//                 add_free_block(NEXT_BLKP(header_ptr));
+//                 return ptr;
+//             }
+//             // if the next block size is not enough
+//             else
+//             {
+//                 void *new_block = mm_malloc(size);
+//                 if (new_block == NULL)
+//                 {
+//                     return NULL;
+//                 }
+//                 // copy the data from the original block to the new block
+//                 memcpy(new_block, ptr, block_size);
+//                 // free the original block
+//                 mm_free(ptr);
+//                 return new_block;
+//             }
+//         }
+//         // if the next block is allocated
+//         else
+//         {
+//             void *new_block = mm_malloc(size);
+//             if (new_block == NULL)
+//             {
+//                 return NULL;
+//             }
+//             // copy the data from the original block to the new block
+//             memcpy(new_block, ptr, block_size);
+//             // free the original block
+//             mm_free(ptr);
+//             return new_block;
+//         }
+//     }
+//     return NULL;
+// }
+
+
+// 여기는 디버깅을 위한 코드로 추측 
 // /*
 //  * checkblock - Check the block for consistency
 //  */
