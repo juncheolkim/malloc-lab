@@ -42,13 +42,36 @@ team_t team = {
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
 
+/* BASIC Constants and macros */
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+
+#define WSIZE 4 // 1 word size (bytes)
+#define DSIZE 8 // 2 word size (double word) (bytes)
+#define CHUNKSIZE (1<<12) // 4KB, Extend heap (bytes)
+
+#define MAX(x,y) ((x) > (y) ? (x) : (y))
+
+#define PACK(size, alloc) ((sice) | (alloc))
+
+#define GET(p) ( *(unsigned int *)(p) ) // read a word at address p
+#define PUT(p, val) (*(unsigned int *)(p) = (val)) // write a word at address p
+
+#define GET_SIZE(p) (GET(p) & ~0x7) // 뒤 3자리를 제외한 사이즈 정보만 읽는다
+#define GET_ALLOC(p) (GET(p) & 0x1) // 뒤 1자리만 읽는다
+
+#define HDRP(bp) ((char *)(bp) - WSIZE) // read header
+#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE) // read footer
+
+#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE))) // next block point
+#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) // prev block point
+
 
 /* 
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
 {
+    /* Create the initial empty heap */
     return 0;
 }
 
