@@ -15,4 +15,6 @@ CS:APP 챕터9에 나와있는 C언어 코드를 공부하면서 코드 작성.
 1. 1word 2word 규격 설정
 2. 자주 사용되는 함수 선언
 
-##### int mm_init(void) 함수 작성
+##### static void \*extend_heap(size_t words) 함수 작성
+
+heap 영역 확장하는 함수 선언

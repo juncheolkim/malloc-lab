@@ -51,7 +51,7 @@ team_t team = {
 
 #define MAX(x,y) ((x) > (y) ? (x) : (y))
 
-#define PACK(size, alloc) ((sice) | (alloc))
+#define PACK(size, alloc) ((size) | (alloc))
 
 #define GET(p) ( *(unsigned int *)(p) ) // read a word at address p
 #define PUT(p, val) (*(unsigned int *)(p) = (val)) // write a word at address p
@@ -66,12 +66,41 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) // prev block point
 
 
+static void *extend_heap(size_t words)
+{
+    char *bp;
+    size_t size;
+
+    size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
+    if ((long)(bp = mem_sbrk(size)) == -1)
+        return NULL;
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));
+
+    return coalesce(bp);
+}
+
+
 /* 
  * mm_init - initialize the malloc package.
  */
+char *heap_listp;
 int mm_init(void)
 {
     /* Create the initial empty heap */
+    if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
+        return -1;
+    PUT(heap_listp, 0);
+    PUT(heap_listp + (1*WSIZE), PACK(DSIZE, 1)); // prologue tag header
+    PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1)); // prologue tag footer
+    PUT(heap_listp + (3*WSIZE), PACK(0, 1)); // epilogue gag
+    heap_listp += (2*WSIZE);
+
+    /* Extend the  empty heap with a free block of CHUNKSIZE bytes */
+    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
+        return -1;
+
     return 0;
 }
 
