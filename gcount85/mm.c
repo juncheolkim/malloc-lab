@@ -66,7 +66,7 @@ team_t team = {
 
 /* 주소 p에 담긴 블록 사이즈와 할당/가용 비트를 읽기 */
 // 여기 도통 이해가 안되는 부분임 ************************
-#define GET_SIZE(p) (GET(p) & ~0x7)
+#define GET_SIZE(p) (GET(p) & ~0x7) 
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
 /* 블록을 가리키는 포인터 bp가 주어졌을 때, 그것의 헤더와 풋터의 주소를 계산 */
@@ -110,7 +110,7 @@ int mm_init(void)
     // 요기까지 초기화 코드
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
-    // 청크사이즈(4096)/워드사이즈(4) = 워드개수(1024)
+    // 청크사이즈(4096바이트)/워드사이즈(4바이트) = 워드개수(1024바이트)
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
         return -1;
     return 0;
@@ -121,7 +121,7 @@ int mm_init(void)
 
 static void *extend_heap(size_t words)
 {
-    char *bp;
+    char *bp; // char 자료형을 쓰는 이유는 1바이트면 주소를 읽기 충분함 
     size_t size;
 
     /* Allocate an even number of words to maintain alignment */
@@ -291,22 +291,27 @@ static void *coalesce(void *bp)
  * 에러메시지: mm_realloc did not preserve the data from old block 
  * 
  */
-// void *mm_realloc(void *ptr, size_t size)
-// {
-//     void *oldptr = ptr;
-//     void *newptr;
-//     size_t copySize;
+void *mm_realloc(void *ptr, size_t size)
+{
+    void *oldptr = ptr;
+    void *newptr;
+    size_t copySize;
 
-//     newptr = mm_malloc(size);
-//     if (newptr == NULL)
-//         return NULL;
-//     copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-//     if (size < copySize)
-//         copySize = size;
-//     memcpy(newptr, oldptr, copySize);
-//     mm_free(oldptr);
-//     return newptr;
-// }
+    newptr = mm_malloc(size);
+    if (newptr == NULL)
+        return NULL;
+
+    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+
+    // 이 경우에는 말록으로 새 포인터를 받을 필요 없을 듯 한데? 남은 부분만 free 시키면 되지 않나
+    // -> 코치님이 말하시길 메모리 단편화와 시간을 따져봐야 할 문제 ! 
+    if (size < copySize) 
+        copySize = size; 
+    
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
+}
 
 
 

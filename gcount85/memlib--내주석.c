@@ -63,6 +63,8 @@ void *mem_sbrk(int incr)
     char *old_brk = mem_brk;
 
     // mem_brk와 증가값을 더한 게 최대 힙 영역을 넘어가면 error
+    // 연산자를 사용하는 경우 char가 int로 바뀌어서 비교된다고 함
+
     if ((incr < 0) || ((mem_brk + incr) > mem_max_addr))
     {
         errno = ENOMEM;
