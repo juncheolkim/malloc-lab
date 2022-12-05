@@ -18,3 +18,7 @@ CS:APP 챕터9에 나와있는 C언어 코드를 공부하면서 코드 작성.
 ##### static void \*extend_heap(size_t words) 함수 작성
 
 heap 영역 확장하는 함수 선언
+
+##### void mm_free(void \*ptr) 함수 작성
+
+ptr 포인터에 위치한 할당된 블럭 반환(가용 블럭으로 만들기)
