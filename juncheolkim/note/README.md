@@ -33,3 +33,7 @@ case 2, PUT(FTRP(bp), PACK(size, 0)); 이 가능한 이유 :
 #### 5. static void \*find_fit(size_t asize) 함수 작성
 
 first-fit 방식으로 find_fit 함수 작성
+
+#### 6. static void place(void \*bp, size_t asize) 함수 작성
+
+가용 블럭에 데이터를 할당할 때,가용 블럭을 나눠주는 함수 작성
