@@ -217,6 +217,16 @@ void mm_free(void *ptr)
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
+/*
+    1. 사이즈가 늘어날 때 인근 가용 블럭을 사용 가능
+        1-1. 오른쪽 블럭 사용 가능
+        1-2. 왼쪽 블럭 사용 가능
+        1-2-1. 위 두 조건을 만족하면 둘 다 사용하는 조건
+    2. 사이즈가 늘어날 때 인근 가용 블럭 사용 불가능
+        2-1. 빈 가용 블럭 검색
+    3. 사이즈가 줄어들 때
+        3-1. 기존 데이터는 어떻게 지켜야하나?
+*/
 void *mm_realloc(void *ptr, size_t size)
 {
     void *oldptr = ptr;
@@ -226,7 +236,7 @@ void *mm_realloc(void *ptr, size_t size)
     newptr = mm_malloc(size);
     if (newptr == NULL)
       return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    copySize =  GET_SIZE(HDRP(oldptr));
     if (size < copySize)
       copySize = size;
     memcpy(newptr, oldptr, copySize);
