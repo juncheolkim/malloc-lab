@@ -69,8 +69,12 @@ team_t team = {
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
-/* 블록을 가리키는 포인터 bp가 주어졌을 때, 그것의 헤더와 풋터의 주소를 계산 */
+// bp = 블록의 *데이터의 시작 부분을 가리키는 포인터
+
+// 헤더는 = 데이터 영역 - 1워드
 #define HDRP(bp) ((char *)(bp)-WSIZE)
+
+// 풋터 = bp + 전체사이즈 - 더블워드(풋터,헤더)
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
 /* 블록을 가리키는 포인터 bp가 주어졌을 때, 다음 블럭과 이전 블럭의 주소를 계산 */
@@ -86,18 +90,12 @@ static void *find_fit(size_t asize);
 
 static char *heap_listp; // 항상 힙의 프롤로그 블록을 가리킬 포인터 변수
 
-//
-
 /*
  * mm_init - initialize the malloc package.
  */
 
 int mm_init(void)
 {
-
-    // 책보고 추가한 부분
-    /* Create the initial empty heap */
-
     // 4 워드를 가져와서 빈 가용리스트를 만들도록 초기화
     if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1)
         return -1;
@@ -115,9 +113,7 @@ int mm_init(void)
     return 0;
 }
 
-// 책보고 추가
 // 새 가용 블록으로 힙을 늘리기
-
 static void *extend_heap(size_t words)
 {
     char *bp; // char 자료형을 쓰는 이유는 1바이트면 주소를 읽기 충분함
@@ -144,7 +140,6 @@ static void *extend_heap(size_t words)
  * mm_malloc - Allocate a block by incrementing the brk pointer.
  *     Always allocate a block whose size is a multiple of the alignment.
  * size 바이트의 메모리 블록을 요청
- *
  */
 
 // 기존 코드에 있던 부분
@@ -289,55 +284,69 @@ static void *coalesce(void *bp)
     return bp;
 }
 
-/*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
- * 에러메시지: mm_realloc did not preserve the data from old block
- */
-void *mm_realloc(void *ptr, size_t size) // realloc할 포인터, 새롭게 필요한 총 사이즈
+// realloc 수정 ---> 44+22=66점
+void *mm_realloc(void *oldptr, size_t size) // realloc할 포인터, 새롭게 필요한 총 사이즈
 {
-    void *oldptr = ptr; // 기존 포인터
-    void *newptr;       // 새로운 포인터 선언
-    size_t copySize;    // 복사해야 할 기존 사이즈 선언
-
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-        return NULL;
-
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-
-    // 이 경우에는 말록으로 새 포인터를 받을 필요 없을 듯 한데? 남은 부분만 free 시키면 되지 않나
-    // -> 코치님이 말하시길 메모리 단편화와 시간을 따져봐야 할 문제 !
-    if (size < copySize)
-        copySize = size;
-
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
-}
-
-// 새롭게 구한 realloc 함수: 65점
-/* mm_realloc - Reallocate a block of memory */
-void *mm_realloc(void *ptr, size_t size)
-{
-    // // Check if the pointer is valid and not already freed
-    // if (ptr != NULL && !is_freed(ptr))
-    // {
-    // Allocate a new block of memory
-    void *new_ptr = mm_malloc(size);
-    if (new_ptr != NULL)
+    // 포인터가 Null이 아니고 이미 free된 상태가 아닌 경우 (지워도 점수 영향X)
+    if (oldptr != NULL && GET_ALLOC(HDRP(oldptr)))
     {
-        // Copy the data from the old block to the new one
-        memcpy(new_ptr, ptr, size);
-        // Free the old block
-        mm_free(ptr);
-        // Return a pointer to the newly allocated block
-        return new_ptr;
+        size_t copySize; // 복사해야 할 기존 사이즈 선언
+        // size_t needsize = ALIGN(size + DSIZE);
+        // size_t nowsize = GET_SIZE(HDRP(oldptr));
+
+        // if (needsize == nowsize)
+        // {
+        //     return oldptr;
+        // }
+
+        // else if (needsize < nowsize)
+        // {
+        //     size_t sub_size = nowsize - needsize;
+        //     if (sub_size > ALIGNMENT)
+        // }
+        void *newptr = mm_malloc(size);
+        if (newptr == NULL)
+            return NULL;
+
+        // if (needsize < nowsize)
+        // {
+
+        // }
+
+        // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+        copySize = GET_SIZE(HDRP(oldptr)) - DSIZE;
+
+        // 이 경우에는 말록으로 새 포인터를 받을 필요 없을 듯 한데? 남은 부분만 free 시키면 되지 않나
+        // -> 코치님이 말하시길 메모리 이용도와 시간을 따져봐야 할 문제 !
+        if (size < copySize)
+            copySize = size;
+
+        memcpy(newptr, oldptr, copySize); // 새로운 포인터로, 올드 포인터에서 copysize 만큼 복사
+        mm_free(oldptr);
+        return newptr;
     }
-    // }
-    // return NULL;
+    return NULL;
 }
 
-// 복잡한 realloc 함수
+// 쌩 기본 realloc 함수: 65점 **************************
+// void *mm_realloc(void *oldptr, size_t size)
+// {
+
+//         // 새로운 메모리 블럭 할당함
+//         void *newptr = mm_malloc(size);
+//         if (newptr == NULL)
+//             return NULL;
+
+//         // 오래된 블럭에서 새로운 블럭으로 데이터 복사
+//         memcpy(newptr, oldptr, size);
+//         // 오래된 블럭 free
+//         mm_free(oldptr);
+//         // 새롭게 할당된 블럭의 포인터 반환
+//         return newptr;
+
+// }
+
+// 복잡한 realloc 함수 -> 분석 필요 
 // void *mm_realloc(void *ptr, size_t size)
 // {
 //     // if ptr is NULL, then it is equivalent to malloc
@@ -476,8 +485,7 @@ void *mm_realloc(void *ptr, size_t size)
 //     return NULL;
 // }
 
-
-// 여기는 디버깅을 위한 코드로 추측 
+// 여기는 디버깅을 위한 코드로 추측
 // /*
 //  * checkblock - Check the block for consistency
 //  */
