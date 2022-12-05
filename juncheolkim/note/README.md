@@ -37,3 +37,7 @@ first-fit 방식으로 find_fit 함수 작성
 #### 6. static void place(void \*bp, size_t asize) 함수 작성
 
 가용 블럭에 데이터를 할당할 때,가용 블럭을 나눠주는 함수 작성
+
+#### 7. void *mm_realloc(void *ptr, size_t size) 함수 작성
+
+블럭의 메모리를 변경하는 reaaloc 함수 작성
