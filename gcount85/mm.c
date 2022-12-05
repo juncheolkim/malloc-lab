@@ -65,8 +65,8 @@ team_t team = {
 #define PUT(p, val) (*(unsigned int *)(p) = (val)) // 워드 쓰기
 
 /* 주소 p에 담긴 블록 사이즈와 할당/가용 비트를 읽기 */
-// 여기 도통 이해가 안되는 부분임 ************************
-#define GET_SIZE(p) (GET(p) & ~0x7) 
+// 사이즈 값을 읽기 위한 비트 연산 & 할당/가용 비트를 읽기 위한 비트 연산
+#define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
 /* 블록을 가리키는 포인터 bp가 주어졌을 때, 그것의 헤더와 풋터의 주소를 계산 */
@@ -83,7 +83,6 @@ static void *extend_heap(size_t words);
 static void place(void *bp, size_t asize);
 static void *find_fit(size_t asize);
 // static void printblock(void *bp);
-
 
 static char *heap_listp; // 항상 힙의 프롤로그 블록을 가리킬 포인터 변수
 
@@ -121,7 +120,7 @@ int mm_init(void)
 
 static void *extend_heap(size_t words)
 {
-    char *bp; // char 자료형을 쓰는 이유는 1바이트면 주소를 읽기 충분함 
+    char *bp; // char 자료형을 쓰는 이유는 1바이트면 주소를 읽기 충분함
     size_t size;
 
     /* Allocate an even number of words to maintain alignment */
@@ -148,7 +147,7 @@ static void *extend_heap(size_t words)
  *
  */
 
-// 기존 코드에 있던 부분 
+// 기존 코드에 있던 부분
 // void *mm_malloc(size_t size)
 // {
 //     int newsize = ALIGN(size + SIZE_T_SIZE);
@@ -174,13 +173,13 @@ void *mm_malloc(size_t size)
         return NULL;
 
     /* 블록 사이즈를 정렬 요건과 헤더/풋터를 위한 공간을 확보하기 위해 조절 */
-    if (size <= DSIZE) // 만약 요청 크기가 8바이트랑 같거나 작으면
+    if (size <= DSIZE) // 만약 요청 크기가 8바이트(워드 2개)랑 같거나 작으면
     {
         asize = 2 * DSIZE; // 최소 16바이트 블록으로 줌 (워드 4개)
     }
     else // 요청 크기가 8바이트보다 크면(더블 워드 이상)
     {
-        //  오버헤드 바이트를 추가하고, 가까운 8의 배수로 반올림 
+        //  오버헤드 바이트를 추가하고, 가까운 8의 배수로 반올림
         asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
     }
 
@@ -196,7 +195,7 @@ void *mm_malloc(size_t size)
     extendsize = MAX(asize, CHUNKSIZE);
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
         return NULL;
-    place(bp, asize); // 필요한 경우 블록 분할 
+    place(bp, asize); // 필요한 경우 블록 분할
     return bp;
 }
 
@@ -217,24 +216,28 @@ static void *find_fit(size_t asize)
     // #endif // <- 얘는 책에 있었는데 #ifdef랑 같이 필요함. 왜 얘만 혼자 있는 건지 모르겠음.
 }
 
-// 조절한 사이즈(asize)의 요청한 블록(bp)을 가용 블록의 시작 부분에 배치하고
+// 가용 블록의 시작 부분에 조절한 사이즈(asize)의 요청한 블록(bp)을 배치하고
+// 헤더, 풋터 지정 
 // 나머지 부분의 크기가 최소 블록 크기와 같거나 큰 경우에만 분할함
 static void place(void *bp, size_t asize)
 {
-    size_t csize = GET_SIZE(HDRP(bp));
+    size_t fsize = GET_SIZE(HDRP(bp)); // 가용 블럭의 전체 사이즈 
 
-    if ((csize - asize) >= (2 * DSIZE))
+    // 가용 블럭의 사이즈와 배치하고자 사이즈의 차이가 워드 4개보다 같거나 크면 -> 분할 O
+    if ((fsize - asize) >= (2 * DSIZE)) 
     {
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
         bp = NEXT_BLKP(bp);
-        PUT(HDRP(bp), PACK(csize - asize, 0));
-        PUT(FTRP(bp), PACK(csize - asize, 0));
+        PUT(HDRP(bp), PACK(fsize - asize, 0));
+        PUT(FTRP(bp), PACK(fsize - asize, 0));
     }
-    else
+
+    // 가용 블럭의 사이즈와 배치하고자 사이즈의 차이가 워드 4개보다 작으면 -> 분할 X
+    else  
     {
-        PUT(HDRP(bp), PACK(csize, 1));
-        PUT(FTRP(bp), PACK(csize, 1));
+        PUT(HDRP(bp), PACK(fsize, 1));
+        PUT(FTRP(bp), PACK(fsize, 1));
     }
 }
 
@@ -288,14 +291,14 @@ static void *coalesce(void *bp)
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
- * 에러메시지: mm_realloc did not preserve the data from old block 
- * 
+ * 에러메시지: mm_realloc did not preserve the data from old block
+ *
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
+    void *oldptr = ptr; // 기존 포인터
+    void *newptr;       // 새로운 포인터 선언
+    size_t copySize;    // 복사할 사이즈 선언 
 
     newptr = mm_malloc(size);
     if (newptr == NULL)
@@ -304,16 +307,14 @@ void *mm_realloc(void *ptr, size_t size)
     copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
 
     // 이 경우에는 말록으로 새 포인터를 받을 필요 없을 듯 한데? 남은 부분만 free 시키면 되지 않나
-    // -> 코치님이 말하시길 메모리 단편화와 시간을 따져봐야 할 문제 ! 
-    if (size < copySize) 
-        copySize = size; 
-    
+    // -> 코치님이 말하시길 메모리 단편화와 시간을 따져봐야 할 문제 !
+    if (size < copySize)
+        copySize = size;
+
     memcpy(newptr, oldptr, copySize);
     mm_free(oldptr);
     return newptr;
 }
-
-
 
 void *mm_realloc(void *ptr, size_t size)
 {
@@ -453,10 +454,7 @@ void *mm_realloc(void *ptr, size_t size)
     return NULL;
 }
 
-
-
-
-// 여기는 분석이 필요함 
+// 여기는 분석이 필요함
 
 // /*
 //  * checkblock - Check the block for consistency
@@ -519,4 +517,3 @@ void *mm_realloc(void *ptr, size_t size)
 //            hsize, (halloc ? 'a' : 'f'),
 //            fsize, (falloc ? 'a' : 'f'));
 // }
-
