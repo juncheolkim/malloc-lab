@@ -12,8 +12,8 @@ CS:APP 챕터9에 나와있는 C언어 코드를 공부하면서 코드 작성.
 
 #### 1. 기본 상수와 매크로 선언
 
-*1word 2word 규격 설정
-*자주 사용되는 함수 선언
+-   1word 2word 규격 설정
+-   자주 사용되는 함수 선언
 
 #### 2. static void \*extend_heap(size_t words) 함수 작성
 
