@@ -1,6 +1,7 @@
 /****************************
  * High-level timing wrappers
  ****************************/
+
 #include <stdio.h>
 #include "fsecs.h"
 #include "fcyc.h"
