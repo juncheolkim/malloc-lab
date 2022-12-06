@@ -2,11 +2,11 @@
 
 ---
 
-### 22.12.04
+## 22.12.04
 
 팀원들과 동적 메모리 할당에 대한 팀 스터디 진행.
 
-### 22.12.05
+## 22.12.05
 
 CS:APP 챕터9에 나와있는 C언어 코드를 공부하면서 코드 작성.
 
@@ -41,3 +41,40 @@ first-fit 방식으로 find_fit 함수 작성
 #### 7. void *mm_realloc(void *ptr, size_t size) 함수 작성
 
 블럭의 메모리를 변경하는 reaaloc 함수 작성
+
+## 22.12.06
+
+명시적 가용 리스트 만들기 = mm.c
+기존 묵시적 가용 리스트 코드 = mm_implicit.c
+
+-   root_free 선언
+
+#### 1. static void \*extend_heap(size_t words) 수정
+
+-   가용 블럭의 prev, next 값 갱신하는 코드 작성
+
+#### 2. void mm_free(void \*ptr) 수정
+
+-   새로 생기는 가용 블럭으로의 root_free 값 수정
+
+#### 3. static void \*coalesce(void \*bp) 수정
+
+-   case에 따라서 두 블럭의 prev, next 값 갱신하는 코드 작성
+
+#### 4. static void place(void \*bp, size_t asize) 수정
+
+-   가용 블럭의 최소 단위는 4\*DSIZE로 변경
+
+#### 5. 작업 도중에 root_free가 NULL값이 된다면? (가용블럭이 하나도 없는 상태)
+
+-   free와 extend_heap 함수에서 조건문으로 검사해야한다.
+-   free : if (root_free != NULL) 를 통해서 root_free값이 존재할 때만 새로운 가용 블럭과 연결한다.
+-   extend_heap : init을 고려하여 미리 설정한 조건문이 확인해준다.
+
+#### 6. static void \*find_fit(size_t asize) 수정
+
+-   for문의 조건을 수정하여 root_free부터 탐색하도록 했다.
+
+#### 7. segmentation fault 발생 (오마이갓 비상사태 큰일이다)
+
+-   형식자 지정을 옳게 지정하지 못해 발생하는 것으로 가정

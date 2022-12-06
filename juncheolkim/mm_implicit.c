@@ -69,19 +69,16 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(( (char *)(bp) - DSIZE)))
 
-/* for explicit */
-unsigned int root_free; // 첫 노드
+
 
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
 
-    if ((csize - asize) >= (4*DSIZE)) // 가용블럭의 최소 단위는 4*DSIZE
+    if ((csize - asize) >= (2*DSIZE))
     {
         PUT(HDRP(bp), PACK(asize,1));
         PUT(FTRP(bp), PACK(asize,1));
-        PUT(NEXT_BLKP(bp), GET(bp)); // explicit
-        PUT((NEXT_BLKP(bp)+WSIZE), GET((char *)bp+WSIZE)); // explicit
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(csize-asize, 0));
         PUT(FTRP(bp), PACK(csize-asize, 0));
@@ -89,10 +86,9 @@ static void place(void *bp, size_t asize)
     else {
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
-        PUT( ((char *)GET(bp)+WSIZE) , GET((char *)bp + WSIZE)); // explicit
-        PUT( GET((char *)bp + WSIZE) , GET(bp) ); // explicit
-    }// todo!!!!!!!! 루트블럭을 지웠을 때 어떻게 할 것인가?
+    }
 }
+
 
 static void *coalesce(void *bp)
 {
@@ -103,36 +99,24 @@ static void *coalesce(void *bp)
     if (prev_alloc && next_alloc){ // case 1
         return bp;
     }
-    else if (prev_alloc && !next_alloc) { // case 2 우측 가용 블럭과 병합
-        PUT( (GET(NEXT_BLKP(bp))+WSIZE) , GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
-        
+    else if (prev_alloc && !next_alloc) { // case 2
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
     }
-    else if (!prev_alloc && next_alloc) { // case 3 좌측 가용 블럭과 병합
-        PUT( (GET(PREV_BLKP(bp))+WSIZE)  , GET(PREV_BLKP(bp) + WSIZE) ); // explicit
-        PUT(PREV_BLKP(bp), GET(bp)); // explicit
-        PUT((PREV_BLKP(bp)+WSIZE) , GET((char *)bp + WSIZE)); // explicit
-        
+    else if (!prev_alloc && next_alloc) { // case 3
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-    else { // case 4 양측 가용 블럭과 병합
-        PUT( (GET(NEXT_BLKP(bp))+WSIZE) , GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
-        PUT( (GET(PREV_BLKP(bp))+WSIZE)  , GET(PREV_BLKP(bp) + WSIZE) ); // explicit
-        PUT(PREV_BLKP(bp), GET(bp)); // explicit
-        PUT((PREV_BLKP(bp)+WSIZE) , GET((char *)bp + WSIZE)); // explicit
-
+    else { // case 4
         size += GET_SIZE(HDRP(PREV_BLKP(bp)))
             + GET_SIZE(FTRP(NEXT_BLKP(bp)));;
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-    
     return bp;
 }
 
@@ -144,17 +128,6 @@ static void *extend_heap(size_t words)
     size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
     if ((long) (bp = mem_sbrk(size)) == -1)
         return NULL;
-    if ( root_free == 0) { // 가용 블럭이 없었을 때
-        PUT(bp,0);
-        PUT(bp+WSIZE,0); 
-        root_free = (unsigned int)bp;
-    }
-    else { // 가용 블럭이 있었을 때
-        PUT((char *)root_free, (unsigned int)bp); // 직전 root_free의 이전 가용 블럭은 새로운 블럭
-        PUT(bp, 0); // 새로운 블럭의 직전 블럭은 NIL
-        PUT(bp + WSIZE, root_free); // 새로운 블럭의 다음 가용 블럭은 이전 root_free
-        root_free = (unsigned int)bp;
-    }
     PUT(HDRP(bp) , PACK(size, 0));
     PUT(FTRP(bp) , PACK(size, 0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
@@ -167,9 +140,9 @@ static void *extend_heap(size_t words)
  * mm_init - initialize the malloc package.
  */
 char *heap_listp;
+
 int mm_init(void)
 {
-    root_free = 0;
     /* Create the initial empty heap */
     if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
         return -1;
@@ -244,6 +217,16 @@ void mm_free(void *ptr)
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
+/*
+    1. 사이즈가 늘어날 때 인근 가용 블럭을 사용 가능
+        1-1. 오른쪽 블럭 사용 가능
+        1-2. 왼쪽 블럭 사용 가능
+        1-2-1. 위 두 조건을 만족하면 둘 다 사용하는 조건
+    2. 사이즈가 늘어날 때 인근 가용 블럭 사용 불가능
+        2-1. 빈 가용 블럭 검색
+    3. 사이즈가 줄어들 때
+        3-1. 기존 데이터는 어떻게 지켜야하나?
+*/
 void *mm_realloc(void *ptr, size_t size)
 {
     void *oldptr = ptr;

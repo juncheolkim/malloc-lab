@@ -69,30 +69,40 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(( (char *)(bp) - DSIZE)))
 
-/* for explicit */
-unsigned int root_free; // 첫 노드
+/* explicit list constants and macros */
+int NIL = 0;
+char *root_free = &NIL;
+#define NEXT_NEXT_FREE(bp) ((char *)NEXT_BLKP(bp) + WSIZE )
+#define PREV_NEXT_FREE(bp) ((char *)PREV_BLKP(bp) + WSIZE )
 
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
 
-    if ((csize - asize) >= (4*DSIZE)) // 가용블럭의 최소 단위는 4*DSIZE
+    if ((csize - asize) >= (4*DSIZE)) // explicit
     {
         PUT(HDRP(bp), PACK(asize,1));
         PUT(FTRP(bp), PACK(asize,1));
         PUT(NEXT_BLKP(bp), GET(bp)); // explicit
-        PUT((NEXT_BLKP(bp)+WSIZE), GET((char *)bp+WSIZE)); // explicit
+        PUT(NEXT_NEXT_FREE(bp) , GET((char *)bp + WSIZE)); // explicit
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(csize-asize, 0));
         PUT(FTRP(bp), PACK(csize-asize, 0));
     }
     else {
+        if (root_free == (char *)bp) // explicit
+        {
+            root_free = (char *)GET(bp+WSIZE);
+        }
+        else // explicit
+        { 
+            PUT(PREV_NEXT_FREE(bp), GET((char *)bp + WSIZE));
+        }
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
-        PUT( ((char *)GET(bp)+WSIZE) , GET((char *)bp + WSIZE)); // explicit
-        PUT( GET((char *)bp + WSIZE) , GET(bp) ); // explicit
-    }// todo!!!!!!!! 루트블럭을 지웠을 때 어떻게 할 것인가?
+    }
 }
+
 
 static void *coalesce(void *bp)
 {
@@ -100,31 +110,32 @@ static void *coalesce(void *bp)
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
 
-    if (prev_alloc && next_alloc){ // case 1
+    if (prev_alloc && next_alloc){ // case 1 
         return bp;
     }
-    else if (prev_alloc && !next_alloc) { // case 2 우측 가용 블럭과 병합
-        PUT( (GET(NEXT_BLKP(bp))+WSIZE) , GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
+    else if (prev_alloc && !next_alloc) { // case 2 
+    
+        PUT( (char *)(GET((char *)NEXT_BLKP(bp)) + WSIZE) , GET( (char *)((char *)NEXT_BLKP(bp)+WSIZE)) ); // explicit
         
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
     }
-    else if (!prev_alloc && next_alloc) { // case 3 좌측 가용 블럭과 병합
-        PUT( (GET(PREV_BLKP(bp))+WSIZE)  , GET(PREV_BLKP(bp) + WSIZE) ); // explicit
-        PUT(PREV_BLKP(bp), GET(bp)); // explicit
-        PUT((PREV_BLKP(bp)+WSIZE) , GET((char *)bp + WSIZE)); // explicit
+    else if (!prev_alloc && next_alloc) { // case 3 
+        PUT( (char *)GET(PREV_BLKP(bp)) + WSIZE , GET(PREV_BLKP(bp)+WSIZE)); // explicit
+        PUT(PREV_BLKP(bp), 0); // explicit
+        PUT(PREV_BLKP(bp)+WSIZE, GET(bp+WSIZE)); // explicit
         
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-    else { // case 4 양측 가용 블럭과 병합
-        PUT( (GET(NEXT_BLKP(bp))+WSIZE) , GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
-        PUT( (GET(PREV_BLKP(bp))+WSIZE)  , GET(PREV_BLKP(bp) + WSIZE) ); // explicit
-        PUT(PREV_BLKP(bp), GET(bp)); // explicit
-        PUT((PREV_BLKP(bp)+WSIZE) , GET((char *)bp + WSIZE)); // explicit
+    else { // case 4
+        PUT( GET(NEXT_BLKP(bp)) + WSIZE , GET(NEXT_BLKP(bp)+WSIZE)); // explicit
+        PUT( GET(PREV_BLKP(bp)) + WSIZE , GET(PREV_BLKP(bp)+WSIZE)); // explicit
+        PUT(PREV_BLKP(bp), 0); // explicit
+        PUT(PREV_BLKP(bp)+WSIZE, GET(bp+WSIZE)); // explicit
 
         size += GET_SIZE(HDRP(PREV_BLKP(bp)))
             + GET_SIZE(FTRP(NEXT_BLKP(bp)));;
@@ -132,7 +143,6 @@ static void *coalesce(void *bp)
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-    
     return bp;
 }
 
@@ -144,19 +154,20 @@ static void *extend_heap(size_t words)
     size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
     if ((long) (bp = mem_sbrk(size)) == -1)
         return NULL;
-    if ( root_free == 0) { // 가용 블럭이 없었을 때
-        PUT(bp,0);
-        PUT(bp+WSIZE,0); 
-        root_free = (unsigned int)bp;
-    }
-    else { // 가용 블럭이 있었을 때
-        PUT((char *)root_free, (unsigned int)bp); // 직전 root_free의 이전 가용 블럭은 새로운 블럭
-        PUT(bp, 0); // 새로운 블럭의 직전 블럭은 NIL
-        PUT(bp + WSIZE, root_free); // 새로운 블럭의 다음 가용 블럭은 이전 root_free
-        root_free = (unsigned int)bp;
-    }
     PUT(HDRP(bp) , PACK(size, 0));
     PUT(FTRP(bp) , PACK(size, 0));
+    if (!root_free) { // root_free 
+        root_free = (int *)bp; // explicit
+        PUT(bp, 0); // explicit
+        PUT(bp+WSIZE, 0); // explicit
+    }
+    else {
+        PUT(bp+WSIZE, *(char *)root_free); // explicit
+        PUT(root_free, *(char *)bp); // explicit
+        root_free = (int *)bp; // explicit
+        PUT(root_free, 0); // explicit
+    }
+    
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
 
     return coalesce(bp);
@@ -167,9 +178,9 @@ static void *extend_heap(size_t words)
  * mm_init - initialize the malloc package.
  */
 char *heap_listp;
+
 int mm_init(void)
 {
-    root_free = 0;
     /* Create the initial empty heap */
     if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
         return -1;
@@ -188,11 +199,21 @@ static void *find_fit(size_t asize)
 {
     void *bp;
 
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+    // implicit find_first_fit
+    // for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+    //     if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+    //         return bp; // find-fit
+    //     }
+    // }
+
+
+    // explicit find_fist_fit
+    for (bp = root_free; *(char *)bp != 0; bp = (char *)GET(bp + WSIZE)) {
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
             return bp; // find-fit
         }
     }
+
     return NULL; // No fit
 }
 
@@ -237,6 +258,13 @@ void mm_free(void *ptr)
 
     PUT(HDRP(ptr), PACK(size, 0));
     PUT(FTRP(ptr), PACK(size, 0));
+    PUT(ptr, 0); // explicit
+    PUT((char *)(ptr + WSIZE) , *(char *)root_free); // explicit
+    if (root_free != 0) // explicit
+    {
+        PUT(root_free, *(char *)ptr);
+    }
+    root_free = ptr; // explicit
     coalesce(ptr);
 }
 
