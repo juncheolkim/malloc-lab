@@ -28,10 +28,8 @@
 
 
 
-### <a href="./20221207"> **2022-12-06** </a>
+### <a href="./20221206"> **2022-12-06** </a>
 
 - `next-fit` 구현하기
-- `agregated free list` 코드 작성하기
-
-
+- ~~`agregated free list` 코드 작성하기~~
 

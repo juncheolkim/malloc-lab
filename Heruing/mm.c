@@ -69,8 +69,10 @@ team_t team = {
 
 /* For segmregated free list*/
 #define LISTLIMIT 20
-#define SUCC_BLCK (*(void **)(bp))
-#define PRED_BLCK (*(void **)(bp + WSIZE))
+#define NEXT_PTR (*(char *)(ptr))
+#define PREV_PTR (*(char *)(ptr) + WSIZE)
+#define NEXT_LIST (*(char **)(ptr))
+#define PREV_LIST (*(char **)(PREV_PTR(ptr)))
 
 static char *heap_listp;
 static char *findp;
@@ -85,8 +87,8 @@ static void place(void *bp, size_t adjusted_size);
  */
 int mm_init(void)
 {
-	int list;
 	/* Create segregated free list*/
+	// int list;
 	// for (list = 0; list < LISTLIMIT; list++)
 	// {
 	// 	segregation_list[list] = NULL;
@@ -149,17 +151,6 @@ void *mm_malloc(size_t size)
  */
 static void *find_fit(size_t asize)
 {
-	/* First-fit search */
-	// void *bp;
-	// for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
-	// {
-	// 	if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
-	// 	{
-	// 		return bp;
-	// 	}
-	// }
-	// return NULL; /* No fit */
-
 	/* Next-fit search */
 	char *bp = findp;
 	for (bp = NEXT_BLKP(bp); GET_SIZE(HDRP(bp)) != 0; bp = NEXT_BLKP(bp))
@@ -180,8 +171,6 @@ static void *find_fit(size_t asize)
 		}
 	}
 	return NULL; /* No fit */
-
-	/* Best-fit search*/
 }
 
 /*
