@@ -78,3 +78,27 @@ first-fit 방식으로 find_fit 함수 작성
 #### 7. segmentation fault 발생 (오마이갓 비상사태 큰일이다)
 
 -   형식자 지정을 옳게 지정하지 못해 발생하는 것으로 가정
+
+## 22.12.07
+
+#### 1. 익일 발생한 오류로 인해 다시 작업 시작
+
+-   익일 place 함수 수정중에 root_free가 없어지는 상황을 어떻게 처리할 것인지
+-   case로 나누어 작동
+
+#### 2. static void \*find_fit(size_t asize) 수정
+
+-   [1] 1658 segmentation fault ./mdriver 발생
+
+#### 3. root_free 를 char\* 로 지정하여 다시 작업 시작
+
+-   NULL 포인터와 int 0 은 서로 형 변환이 가능하다!!! (세상에;)
+
+#### 4. 발견 허점들
+
+-   coalesce 함수에서 합쳐지는 블럭이 마지막 가용블럭이었을 경우 계산을 놓침.
+-   place 함수에서 최소 가용블럭 크기는 이전과 동일하게 2\*DSIZE 이다.
+    왜냐하면, 헤더(1word) + 풋터(1word) + 후임자(1word) + 선임자(1word) = 4\*word = 2\*double word 이기 떄문이다.
+-   free에서 root_free 최신화를 안했다.
+-   find_fit 함수에서 for문이 아닌 while문으로 마지막 블럭 검색도 포함시킨다.
+-   [1] 5360 segmentation fault ./mdriver 발생
