@@ -86,14 +86,12 @@ static void *coalesce(void *bp);
 static void *extend_heap(size_t words);
 static void place(void *bp, size_t asize);
 static void *find_fit(size_t asize);
-// static void printblock(void *bp);
 
+// static 전역 변수 선언
 static char *heap_listp; // 항상 힙의 프롤로그 블록을 가리킬 포인터 변수
+static char *findp;      // next-fit을 위한 변수
 
-/*
- * mm_init - initialize the malloc package.
- */
-
+/* 말록 패키지 초기화 */
 int mm_init(void)
 {
     // 4 워드를 가져와서 빈 가용리스트를 만들도록 초기화
@@ -106,10 +104,12 @@ int mm_init(void)
     heap_listp += (2 * WSIZE);
     // 요기까지 초기화 코드
 
-    /* Extend the empty heap with a free block of CHUNKSIZE bytes */
+    /* CHUNKSIZE 바이트의 가용 블록으로 비어있는 힙을 확장함 */
     // 청크사이즈(4096바이트)/워드사이즈(4바이트) = 워드개수(1024바이트)
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
         return -1;
+    findp = (char *)heap_listp; // have to casting: heap_listp is void
+
     return 0;
 }
 
@@ -137,26 +137,9 @@ static void *extend_heap(size_t words)
 }
 
 /*
- * mm_malloc - Allocate a block by incrementing the brk pointer.
- *     Always allocate a block whose size is a multiple of the alignment.
- * size 바이트의 메모리 블록을 요청
+ * mm_malloc - brk 포인터를 증가시킴으로서 블록을 할당.
+ * 항상 정렬의 배수의 사이즈를 가진 블럭을 할당함.
  */
-
-// 기존 코드에 있던 부분
-// void *mm_malloc(size_t size)
-// {
-//     int newsize = ALIGN(size + SIZE_T_SIZE);
-//     void *p = mem_sbrk(newsize);
-//     if (p == (void *)-1)
-//         return NULL;
-//     else
-//     {
-//         *(size_t *)p = size;
-//         return (void *)((char *)p + SIZE_T_SIZE);
-//     }
-// }
-
-// mm_malloc: 책에서 복붙한 부분
 void *mm_malloc(size_t size)
 {
     size_t asize;      /* Adjusted block size for 더블워드 정렬, 헤더/풋터*/
@@ -182,6 +165,7 @@ void *mm_malloc(size_t size)
     if ((bp = find_fit(asize)) != NULL) // fit하는 블록이 있을 때
     {
         place(bp, asize); // bp가 가리키는 블록에 해당 사이즈 할당
+        findp = bp;       // next-fit 마지막 검색 지점 설정
         return bp;        // 포인터 반환
     }
 
@@ -191,24 +175,39 @@ void *mm_malloc(size_t size)
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
         return NULL;
     place(bp, asize); // 필요한 경우 블록 분할
+    findp = bp;       // next-fit 때문에 추가
+
     return bp;
 }
 
-// 묵시적 가용 리스트에서 first fit 검색을 수행하는 함수
+
+
+// next-fit search
 static void *find_fit(size_t asize)
 {
-    /* First-fit search */
-    void *bp;
-
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
+    char *bp = findp;
+    // 에필로그 블록에 도달할 때까지 블록 탐색
+    for (bp = NEXT_BLKP(bp); GET_SIZE(HDRP(bp)) != 0; bp = NEXT_BLKP(bp))
     {
+        // 가용 블록이고, 필요한 사이즈와 같거나 클 때 해당 블록 포인터 반환
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
         {
+            findp = bp;
             return bp;
         }
     }
-    return NULL; /* 맞는 fit이 없는 경우 */
-    // #endif // <- 얘는 책에 있었는데 #ifdef랑 같이 필요함. 왜 얘만 혼자 있는 건지 모르겠음.
+
+    // 에필로그 블록에 도달했는데 못 찾은 경우, 프롤로그 블록부터 다시 탐색
+    for (bp = heap_listp; bp < findp;)
+    {
+        bp = NEXT_BLKP(bp);
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
+        {
+            findp = bp;
+            return bp;
+        }
+    }
+    return NULL; /* No fit */
 }
 
 // 가용 블록의 시작 부분에 조절한 사이즈(asize)의 요청한 블록(bp)을 배치하고
@@ -255,7 +254,8 @@ static void *coalesce(void *bp)
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
     if (prev_alloc && next_alloc)
-    { /* Case 1 */
+    {               /* Case 1 */
+        findp = bp; // next-fit 코드 때문에 추가
         return bp;
     }
 
@@ -281,269 +281,49 @@ static void *coalesce(void *bp)
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
+    findp = bp; // next-fit 코드 때문에 추가
+
     return bp;
 }
 
-// realloc 수정 ---> 44+22=66점
-void *mm_realloc(void *oldptr, size_t size) // realloc할 포인터, 새롭게 필요한 총 사이즈
+// 인자로 받은 bp의 데이터를 새로운 사이즈의 블럭에 재할당
+void *mm_realloc(void *bp, size_t size)
 {
-    // 포인터가 Null이 아니고 이미 free된 상태가 아닌 경우 (지워도 점수 영향X)
-    if (oldptr != NULL && GET_ALLOC(HDRP(oldptr)))
+    size_t old_size = GET_SIZE(HDRP(bp));
+    size_t new_size = size + DSIZE;
+
+    if (new_size <= old_size)
     {
-        size_t copySize; // 복사해야 할 기존 사이즈 선언
-        // size_t needsize = ALIGN(size + DSIZE);
-        // size_t nowsize = GET_SIZE(HDRP(oldptr));
-
-        // if (needsize == nowsize)
-        // {
-        //     return oldptr;
-        // }
-
-        // else if (needsize < nowsize)
-        // {
-        //     size_t sub_size = nowsize - needsize;
-        //     if (sub_size > ALIGNMENT)
-        // }
-        void *newptr = mm_malloc(size);
-        if (newptr == NULL)
-            return NULL;
-
-        // if (needsize < nowsize)
-        // {
-
-        // }
-
-        // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-        copySize = GET_SIZE(HDRP(oldptr)) - DSIZE;
-
-        // 이 경우에는 말록으로 새 포인터를 받을 필요 없을 듯 한데? 남은 부분만 free 시키면 되지 않나
-        // -> 코치님이 말하시길 메모리 이용도와 시간을 따져봐야 할 문제 !
-        if (size < copySize)
-            copySize = size;
-
-        memcpy(newptr, oldptr, copySize); // 새로운 포인터로, 올드 포인터에서 copysize 만큼 복사
-        mm_free(oldptr);
-        return newptr;
+        return bp;
     }
-    return NULL;
+
+    else
+    {
+        size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+        size_t current_size = old_size + GET_SIZE(HDRP(NEXT_BLKP(bp)));
+
+        // next block이 Free이고, old, next block의 사이즈 합이 new_size보다 크면 바로 합쳐서 쓰기
+        if (!next_alloc && current_size >= new_size)
+        {
+            PUT(HDRP(bp), PACK(current_size, 1));
+            PUT(FTRP(bp), PACK(current_size, 1));
+            return bp;
+        }
+
+        // 아닌 경우 새로운 block malloc으로 할당 받아 데이터 복사
+        else
+        {
+            void *new_bp = mm_malloc(new_size);
+            place(new_bp, new_size);
+            memcpy(new_bp, bp, new_size); // old_bp로부터 new_size만큼 new_bp로 복사
+            mm_free(bp);
+            return new_bp;
+        }
+    }
 }
 
-// 쌩 기본 realloc 함수: 65점 **************************
-// void *mm_realloc(void *oldptr, size_t size)
-// {
 
-//         // 새로운 메모리 블럭 할당함
-//         void *newptr = mm_malloc(size);
-//         if (newptr == NULL)
-//             return NULL;
 
-//         // 오래된 블럭에서 새로운 블럭으로 데이터 복사
-//         memcpy(newptr, oldptr, size);
-//         // 오래된 블럭 free
-//         mm_free(oldptr);
-//         // 새롭게 할당된 블럭의 포인터 반환
-//         return newptr;
 
-// }
 
-// 복잡한 realloc 함수 -> 분석 필요 
-// void *mm_realloc(void *ptr, size_t size)
-// {
-//     // if ptr is NULL, then it is equivalent to malloc
-//     if (ptr == NULL)
-//     {
-//         return mm_malloc(size);
-//     }
 
-//     // if size is 0, then free the memory previously allocated
-//     if (size == 0)
-//     {
-//         mm_free(ptr);
-//         return NULL;
-//     }
-
-//     // get the header of the block
-//     void *header_ptr = HDRP(ptr);
-//     void *next_header_ptr = NEXT_BLKP(header_ptr);
-
-//     // get the size of the current block
-//     size_t block_size = GET_SIZE(HDRP(header_ptr));
-
-//     // if the block fits perfectly, no need to reallocate
-//     if (block_size == size)
-//     {
-//         return ptr;
-//     }
-//     // if the block is smaller than the size requested
-//     else if (block_size < size)
-//     {
-//         // check if the next block is allocated
-//         if (!GET_ALLOC(next_header_ptr))
-//         {
-//             // get the size of the next block
-//             size_t next_block_size = GET_SIZE(next_header_ptr);
-
-//             // if the next block size is greater than the required size
-//             if (next_block_size + block_size >= size)
-//             {
-//                 // remove the next block from the free list
-//                 remove_free_block(next_header_ptr);
-//                 // allocate the current block
-//                 PUT(HDRP(header_ptr), PACK(block_size + next_block_size, 1));
-//                 // set the footer of the current block
-//                 PUT(FTRP(header_ptr), PACK(block_size + next_block_size, 1));
-//                 // set the header of the next block
-//                 PUT(HDRP(NEXT_BLKP(header_ptr)), PACK(0, 1));
-//                 return ptr;
-//             }
-//             // if the next block size is not enough
-//             else
-//             {
-//                 void *new_block = mm_malloc(size);
-//                 if (new_block == NULL)
-//                 {
-//                     return NULL;
-//                 }
-//                 // copy the data from the original block to the new block
-//                 memcpy(new_block, ptr, block_size);
-//                 // free the original block
-//                 mm_free(ptr);
-//                 return new_block;
-//             }
-//         }
-//         // if the next block is allocated
-//         else
-//         {
-//             void *new_block = mm_malloc(size);
-//             if (new_block == NULL)
-//             {
-//                 return NULL;
-//             }
-//             // copy the data from the original block to the new block
-//             memcpy(new_block, ptr, block_size);
-//             // free the original block
-//             mm_free(ptr);
-//             return new_block;
-//         }
-//     }
-//     // if the block is larger than the size requested
-//     else
-//     {
-//         // check if the next block is allocated
-//         if (!GET_ALLOC(next_header_ptr))
-//         {
-//             // get the size of the next block
-//             size_t next_block_size = GET_SIZE(next_header_ptr);
-
-//             // if the next block size plus the current block size is greater than the required size
-//             if (next_block_size + block_size >= size)
-//             {
-//                 // remove the next block from the free list
-//                 remove_free_block(next_header_ptr);
-//                 // allocate the current block
-//                 PUT(HDRP(header_ptr), PACK(size, 1));
-//                 // set the footer of the current block
-//                 PUT(FTRP(header_ptr), PACK(size, 1));
-//                 // set the header of the next block
-//                 PUT(HDRP(NEXT_BLKP(header_ptr)), PACK(next_block_size + block_size - size, 0));
-//                 // set the footer of the next block
-//                 PUT(FTRP(NEXT_BLKP(header_ptr)), PACK(next_block_size + block_size - size, 0));
-//                 // add the next block to the free list
-//                 add_free_block(NEXT_BLKP(header_ptr));
-//                 return ptr;
-//             }
-//             // if the next block size is not enough
-//             else
-//             {
-//                 void *new_block = mm_malloc(size);
-//                 if (new_block == NULL)
-//                 {
-//                     return NULL;
-//                 }
-//                 // copy the data from the original block to the new block
-//                 memcpy(new_block, ptr, block_size);
-//                 // free the original block
-//                 mm_free(ptr);
-//                 return new_block;
-//             }
-//         }
-//         // if the next block is allocated
-//         else
-//         {
-//             void *new_block = mm_malloc(size);
-//             if (new_block == NULL)
-//             {
-//                 return NULL;
-//             }
-//             // copy the data from the original block to the new block
-//             memcpy(new_block, ptr, block_size);
-//             // free the original block
-//             mm_free(ptr);
-//             return new_block;
-//         }
-//     }
-//     return NULL;
-// }
-
-// 여기는 디버깅을 위한 코드로 추측
-// /*
-//  * checkblock - Check the block for consistency
-//  */
-// static void checkblock(void *bp)
-// {
-//     if ((size_t)bp % 8)
-//         printf("Error: %p is not doubleword aligned\n", bp);
-//     if (GET(HDRP(bp)) != GET(FTRP(bp)))
-//         printf("Error: header does not match footer\n");
-// }
-
-// /*
-//  * mm_checkheap - Check the heap for consistency
-//  */
-// static void mm_checkheap(int verbose)
-// {
-//     char *bp = heap_listp;
-
-//     if (verbose)
-//         printf("Heap (%p):\n", heap_listp);
-
-//     if ((GET_SIZE(HDRP(heap_listp)) != DSIZE) || !GET_ALLOC(HDRP(heap_listp)))
-//         printf("Bad prologue header\n");
-//     checkblock(heap_listp);
-
-//     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
-//     {
-//         if (verbose)
-//             printblock(bp);
-//         checkblock(bp);
-//     }
-
-//     if (verbose)
-//         printblock(bp);
-//     if ((GET_SIZE(HDRP(bp)) != 0) || !(GET_ALLOC(HDRP(bp))))
-//         printf("Bad epilogue header\n");
-// }
-
-// /*
-//  * printblock - Print the block for debugging
-//  */
-// static void printblock(void *bp)
-// {
-//     size_t hsize, halloc, fsize, falloc;
-
-//     mm_checkheap(0);
-//     hsize = GET_SIZE(HDRP(bp));
-//     halloc = GET_ALLOC(HDRP(bp));
-//     fsize = GET_SIZE(FTRP(bp));
-//     falloc = GET_ALLOC(FTRP(bp));
-
-//     if (hsize == 0)
-//     {
-//         printf("%p: EOL\n", bp);
-//         return;
-//     }
-
-//     printf("%p: header: [%d:%c] footer: [%d:%c]\n", bp,
-//            hsize, (halloc ? 'a' : 'f'),
-//            fsize, (falloc ? 'a' : 'f'));
-// }
