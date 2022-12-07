@@ -24,7 +24,7 @@
  ********************************************************/
 team_t team = {
     /* Team name */
-    "2team",
+    "2 team",
     /* First member's full name */
     "Harry Bovik",
     /* First member's email address */
@@ -69,47 +69,23 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(( (char *)(bp) - DSIZE)))
 
-/* set root free block */
-char *ROOT_FREE;
 
 
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
 
-    if ((csize - asize) >= (2*DSIZE)) // 가용 블럭 최소값이 보장될 경우
+    if ((csize - asize) >= (2*DSIZE))
     {
         PUT(HDRP(bp), PACK(asize,1));
         PUT(FTRP(bp), PACK(asize,1));
-
-        PUT(NEXT_BLKP(bp), GET(bp)); // explicit
-        PUT((NEXT_BLKP(bp)+WSIZE), GET((char *)bp+WSIZE)); // explicit
-
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(csize-asize, 0));
         PUT(FTRP(bp), PACK(csize-asize, 0));
-
     }
-    else { // 가용 블럭 최소값이 보장될 수 없는 경우 > 블럭 전체를 먹는다
+    else {
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
-        
-        if (!GET(bp) && GET((char *)(bp) + WSIZE)) { //explicit (case1), root_free 블럭일 경우, next가 있을 경우
-            ROOT_FREE = (char *)GET((char *)(bp) + WSIZE); // root_free 값은 기존 root_free값의 next 값이 된다
-            PUT(ROOT_FREE,(unsigned int)NULL); // explicit
-        }
-        else if (GET(bp) && !GET((char *)(bp) + WSIZE)) { //explicit (case2), 마지막 블럭일 경우, prev가 있을 경우
-            ROOT_FREE = (char *)GET(bp); 
-            PUT(ROOT_FREE+WSIZE,(unsigned int)NULL);
-        }
-        else if (!GET(bp) && !GET((char *)(bp) + WSIZE)) { // explicit (case3), 루트 블럭이며, prev와 next가 없는 경우
-            ROOT_FREE = NULL;
-        }
-        else { // explicit (case4), prev와 next가 존재하는 경우
-            PUT( ((char *)GET(bp)+WSIZE) , GET((char *)bp + WSIZE)); // explicit, predecessor 수정
-            PUT( GET((char *)bp + WSIZE) , GET(bp) ); // explicit, successor 수정
-        }
-
     }
 }
 
@@ -123,57 +99,18 @@ static void *coalesce(void *bp)
     if (prev_alloc && next_alloc){ // case 1
         return bp;
     }
-    else if (prev_alloc && !next_alloc) { // case 2 우측 가용 블럭과 병합
-
-        if ( GET(NEXT_BLKP(bp)+WSIZE) == 0 ) { // explicit, 우측 블럭이 마지막 블럭이었을 때
-            PUT( ((char *)GET(NEXT_BLKP(bp))+WSIZE), GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
-        }
-        else {
-            PUT( ((char *)GET(NEXT_BLKP(bp))+WSIZE), GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
-            PUT( ((char *)GET(NEXT_BLKP(bp)+WSIZE)) , GET(NEXT_BLKP(bp)) ); // explicit
-        }
-
+    else if (prev_alloc && !next_alloc) { // case 2
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
     }
-    else if (!prev_alloc && next_alloc) { // case 3 좌측 가용 블럭과 병합
-
-        if ( GET(PREV_BLKP(bp)+WSIZE) == 0 ) { // explicit, 좌측 블럭이 마지막 블럭이었을 때
-            PUT( (char *)GET(PREV_BLKP(bp))+WSIZE, GET(PREV_BLKP(bp)+WSIZE) ); // explicit
-        }
-        else {
-            PUT( (char *)GET(PREV_BLKP(bp))+WSIZE, GET(PREV_BLKP(bp)+WSIZE) ); // explicit
-            PUT( (char *)GET(PREV_BLKP(bp)+WSIZE) , GET(PREV_BLKP(bp)) ); // explicit
-        }
-        PUT( PREV_BLKP(bp), GET(bp) ); // explicit
-        PUT(PREV_BLKP(bp)+WSIZE , GET((char *)bp + WSIZE)); // explicit
-
+    else if (!prev_alloc && next_alloc) { // case 3
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-    else { // case 4 양측 가용 블럭과 병합
-        if ( GET(NEXT_BLKP(bp)+WSIZE) == 0 ) { // explicit, 우측 블럭이 마지막 블럭이었을 때
-            PUT( ((char *)GET(NEXT_BLKP(bp))+WSIZE), GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
-            PUT( (char *)GET(PREV_BLKP(bp))+WSIZE, GET(PREV_BLKP(bp)+WSIZE) ); // explicit
-            PUT( (char *)GET(PREV_BLKP(bp)+WSIZE) , GET(PREV_BLKP(bp)) ); // explicit
-        }
-        else if (GET(PREV_BLKP(bp)+WSIZE) == 0) { // explicit, 좌측 블럭이 마지막 블럭이었을 때
-            PUT( ((char *)GET(NEXT_BLKP(bp))+WSIZE), GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
-            PUT( ((char *)GET(NEXT_BLKP(bp)+WSIZE)) , GET(NEXT_BLKP(bp)) ); // explicit
-            PUT( (char *)GET(PREV_BLKP(bp))+WSIZE, GET(PREV_BLKP(bp)+WSIZE) ); // explicit
-        }
-        else {
-            PUT( ((char *)GET(NEXT_BLKP(bp))+WSIZE), GET(NEXT_BLKP(bp)+WSIZE) ); // explicit
-            PUT( ((char *)GET(NEXT_BLKP(bp)+WSIZE)) , GET(NEXT_BLKP(bp)) ); // explicit
-            PUT( (char *)GET(PREV_BLKP(bp))+WSIZE, GET(PREV_BLKP(bp)+WSIZE) ); // explicit
-            PUT( (char *)GET(PREV_BLKP(bp)+WSIZE) , GET(PREV_BLKP(bp)) ); // explicit
-        }
-        PUT( PREV_BLKP(bp), GET(bp) ); // explicit
-        PUT(PREV_BLKP(bp)+WSIZE , GET((char *)bp + WSIZE)); // explicit
-
+    else { // case 4
         size += GET_SIZE(HDRP(PREV_BLKP(bp)))
             + GET_SIZE(FTRP(NEXT_BLKP(bp)));;
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
@@ -191,17 +128,6 @@ static void *extend_heap(size_t words)
     size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
     if ((long) (bp = mem_sbrk(size)) == -1)
         return NULL;
-    if (ROOT_FREE == NULL) { // explicit ,가용 블럭 X
-        PUT(bp,(unsigned int)NULL);
-        PUT(bp+WSIZE, (unsigned int)NULL);
-        ROOT_FREE = bp; // 새로운 ROOT
-    }
-    else { // explicit ,가용 블럭 O
-        PUT(ROOT_FREE, (unsigned int)bp);
-        PUT(bp, (unsigned int)NULL);
-        PUT(bp + WSIZE, (unsigned int)ROOT_FREE);
-        ROOT_FREE = bp;
-    }
     PUT(HDRP(bp) , PACK(size, 0));
     PUT(FTRP(bp) , PACK(size, 0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
@@ -218,7 +144,6 @@ char *heap_listp;
 int mm_init(void)
 {
     /* Create the initial empty heap */
-    ROOT_FREE = NULL; // root 초기화
     if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
         return -1;
     PUT(heap_listp, 0);
@@ -234,21 +159,12 @@ int mm_init(void)
 
 static void *find_fit(size_t asize)
 {
-    // void *bp;
+    void *bp;
 
-    // for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-    //     if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
-    //         return bp; // find-fit
-    //     }
-    // }
-
-    char *bp = ROOT_FREE;
-    while (bp)
-    {
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
             return bp; // find-fit
         }
-        bp = (char *)GET(bp+WSIZE);
     }
     return NULL; // No fit
 }
@@ -294,13 +210,6 @@ void mm_free(void *ptr)
 
     PUT(HDRP(ptr), PACK(size, 0));
     PUT(FTRP(ptr), PACK(size, 0));
-    if (ROOT_FREE) { // explicit, ROOT_FREE가 있었다면
-        PUT(ROOT_FREE, (int)ptr); // explicit
-    }
-    PUT(ptr, (unsigned int)NULL); // explicit
-    PUT((char *)ptr+WSIZE, (unsigned int)ROOT_FREE); // explicit
-    ROOT_FREE = (char *)ptr; // explicit
-    
     coalesce(ptr);
 }
 

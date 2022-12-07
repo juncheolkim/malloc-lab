@@ -102,3 +102,7 @@ first-fit 방식으로 find_fit 함수 작성
 -   free에서 root_free 최신화를 안했다.
 -   find_fit 함수에서 for문이 아닌 while문으로 마지막 블럭 검색도 포함시킨다.
 -   [1] 5360 segmentation fault ./mdriver 발생
+
+-   coalesce case3에서 에러가 발생하는 것으로 예상됨
+-   if ( (unsigned int)(GET(PREV_BLKP(bp)+WSIZE)) == 0 )
+    unsigned int로 형변환을 해야한다.
